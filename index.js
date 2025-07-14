@@ -26,7 +26,33 @@ const client = new MongoClient(process.env.MONGO_URI, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
+
+    const DB = client.db("gamePlaneDB");
+    const usersCollection = DB.collection("users");
+
+    // users apis
+    app.post("/users", async (req, res) => {
+      const user = req.body;
+      const query = { email: user.email };
+      const existingUser = await usersCollection.findOne(query);
+
+      if (existingUser) {
+        // update last login
+        const lastLogin = req.body.last_login;
+        const updateLastLogin = await usersCollection.updateOne(
+          { email },
+          { $set: { last_login: lastLogin } }
+        );
+        return res.status(200).send(updateLastLogin, {
+          message: "user already exists",
+          inserted: "false",
+        });
+      }
+
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
+    })
 
 
     // Send a ping to confirm a successful connection
