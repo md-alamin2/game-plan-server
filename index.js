@@ -1,18 +1,12 @@
-const express = require('express');
+const express = require("express");
 const app = express();
 const cors = require("cors");
 require("dotenv").config();
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require('mongodb');
-
-
+const { MongoClient, ServerApiVersion } = require("mongodb");
 
 app.use(cors());
 app.use(express.json());
-
-
-
-
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(process.env.MONGO_URI, {
@@ -20,7 +14,7 @@ const client = new MongoClient(process.env.MONGO_URI, {
     version: ServerApiVersion.v1,
     strict: true,
     deprecationErrors: true,
-  }
+  },
 });
 
 async function run() {
@@ -40,10 +34,9 @@ async function run() {
       if (existingUser) {
         // update last login
         const lastLogin = req.body.last_login;
-        const updateLastLogin = await usersCollection.updateOne(
-          { email },
-          { $set: { last_login: lastLogin } }
-        );
+        const updateLastLogin = await usersCollection.updateOne(query, {
+          $set: { last_login: lastLogin },
+        });
         return res.status(200).send(updateLastLogin, {
           message: "user already exists",
           inserted: "false",
@@ -52,12 +45,13 @@ async function run() {
 
       const result = await usersCollection.insertOne(user);
       res.send(result);
-    })
-
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
-    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!"
+    );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -65,12 +59,10 @@ async function run() {
 }
 run().catch(console.dir);
 
-
-
 app.get("/", (req, res) => {
   res.send("Game Server is running");
 });
 
-app.listen(port, ()=>{
-    console.log(`Server is running on port ${port}`);
-})
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
