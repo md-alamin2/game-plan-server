@@ -49,6 +49,16 @@ async function run() {
       res.send(result);
     });
 
+    app.patch("/users", async(req, res)=>{
+      const user = req.body;
+      const email = req.query.email;
+      const query = { email };
+      const updateUser = await usersCollection.updateOne(query, {
+        $set: user,
+      });
+      res.send(updateUser);
+    })
+
 
     // courts apis
     app.get("/courts", async (req, res) => {
