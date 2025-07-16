@@ -3,7 +3,7 @@ const app = express();
 const cors = require("cors");
 require("dotenv").config();
 const port = process.env.PORT || 3000;
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 app.use(cors());
 app.use(express.json());
@@ -49,7 +49,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users", async(req, res)=>{
+    app.patch("/users", async (req, res) => {
       const user = req.body;
       const email = req.query.email;
       const query = { email };
@@ -57,8 +57,7 @@ async function run() {
         $set: user,
       });
       res.send(updateUser);
-    })
-
+    });
 
     // courts apis
     app.get("/courts", async (req, res) => {
@@ -66,11 +65,26 @@ async function run() {
       res.send(result);
     });
 
-
     // bookings apis
+    // Get user's pending bookings
+    app.get("/bookings/pending", async (req, res) => {
+      const user = req.query.user;
+      const query = { user, status: "pending" };
+      const result = await bookingsCollection.find(query).toArray();
+      res.send(result);
+    });
+
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
       const result = await bookingsCollection.insertOne(booking);
+      res.send(result);
+    });
+
+    // Cancel booking
+    app.delete("/cancel-bookings/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.deleteOne(query);
       res.send(result);
     });
 
