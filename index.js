@@ -25,6 +25,7 @@ async function run() {
     const DB = client.db("gamePlaneDB");
     const usersCollection = DB.collection("users");
     const courtsCollection = DB.collection("courts");
+    const bookingsCollection = DB.collection("bookings");
 
     // users apis
     app.post("/users", async (req, res) => {
@@ -52,6 +53,14 @@ async function run() {
     // courts apis
     app.get("/courts", async (req, res) => {
       const result = await courtsCollection.find().toArray();
+      res.send(result);
+    });
+
+
+    // bookings apis
+    app.post("/bookings", async (req, res) => {
+      const booking = req.body;
+      const result = await bookingsCollection.insertOne(booking);
       res.send(result);
     });
 
