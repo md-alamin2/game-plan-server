@@ -26,8 +26,18 @@ async function run() {
     const usersCollection = DB.collection("users");
     const courtsCollection = DB.collection("courts");
     const bookingsCollection = DB.collection("bookings");
+    const announcementsCollection = DB.collection("announcements");
 
     // users apis
+    // get user role by email
+    app.get("/users/role", async (req, res) => {
+      const email = req.query.email;
+      const query = { email };
+      const result = await usersCollection.findOne(query);
+      res.send(result);
+    });
+
+    // post user data
     app.post("/users", async (req, res) => {
       const user = req.body;
       const query = { email: user.email };
@@ -87,6 +97,63 @@ async function run() {
       const result = await bookingsCollection.deleteOne(query);
       res.send(result);
     });
+
+    // announcement apis
+
+    app.get("/announcements", async (req, res) => {
+      const result = await announcementsCollection.find().toArray();
+      res.send(result);
+    })
+
+    // announcement search api
+    app.get("/announcements/search", async (req, res) => {
+      try {
+        const { title } = req.query;
+        const announcements = await announcementsCollection
+          .find({
+            title: { $regex: title, $options: "i" }, // Case-insensitive search
+          })
+          .sort({ createdAt: -1 })
+          .toArray();
+        res.send(announcements);
+      } catch (err) {
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // announcement post api
+    app.post("/announcements", async(req, res)=>{
+      const announcement = req.body;
+      const newAnnouncement = {
+        ...announcement,
+        created_at: new Date().toISOString(),
+      }
+      const result = await announcementsCollection.insertOne(newAnnouncement);
+      res.send(result);
+    })
+
+    // announcement post api
+    app.patch("/announcements/:id", async(req, res)=>{
+      const id = req.params.id;
+      const updatedAnnouncement = req.body;
+      const query = {_id: new ObjectId(id)}
+      const updatedDoc = {
+        $set:{
+            title: updatedAnnouncement.title,
+            description: updatedAnnouncement.description
+        }
+      }
+      const result = await announcementsCollection.updateOne(query,updatedDoc);
+      res.send(result);
+    })
+
+    // announcement delete api
+    app.delete("/announcements/:id", async(req, res)=>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await announcementsCollection.deleteOne(query);
+      res.send(result)
+    })
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
