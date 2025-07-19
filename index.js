@@ -29,6 +29,17 @@ async function run() {
     const announcementsCollection = DB.collection("announcements");
 
     // users apis
+    app.get("/users", async (req, res) => {
+      const result = await usersCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.get("/members", async(req, res)=>{
+      const query = {role: "member"}
+      const result = await usersCollection.find(query).toArray();
+      res.send(result);
+    })
+    
     // get user role by email
     app.get("/users/role", async (req, res) => {
       const email = req.query.email;
@@ -103,7 +114,7 @@ async function run() {
     app.get("/announcements", async (req, res) => {
       const result = await announcementsCollection.find().toArray();
       res.send(result);
-    })
+    });
 
     // announcement search api
     app.get("/announcements/search", async (req, res) => {
@@ -122,38 +133,38 @@ async function run() {
     });
 
     // announcement post api
-    app.post("/announcements", async(req, res)=>{
+    app.post("/announcements", async (req, res) => {
       const announcement = req.body;
       const newAnnouncement = {
         ...announcement,
         created_at: new Date().toISOString(),
-      }
+      };
       const result = await announcementsCollection.insertOne(newAnnouncement);
       res.send(result);
-    })
+    });
 
     // announcement post api
-    app.patch("/announcements/:id", async(req, res)=>{
+    app.patch("/announcements/:id", async (req, res) => {
       const id = req.params.id;
       const updatedAnnouncement = req.body;
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) };
       const updatedDoc = {
-        $set:{
-            title: updatedAnnouncement.title,
-            description: updatedAnnouncement.description
-        }
-      }
-      const result = await announcementsCollection.updateOne(query,updatedDoc);
+        $set: {
+          title: updatedAnnouncement.title,
+          description: updatedAnnouncement.description,
+        },
+      };
+      const result = await announcementsCollection.updateOne(query, updatedDoc);
       res.send(result);
-    })
+    });
 
     // announcement delete api
-    app.delete("/announcements/:id", async(req, res)=>{
+    app.delete("/announcements/:id", async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
+      const query = { _id: new ObjectId(id) };
       const result = await announcementsCollection.deleteOne(query);
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
