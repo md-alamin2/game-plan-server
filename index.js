@@ -34,12 +34,12 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/members", async(req, res)=>{
-      const query = {role: "member"}
+    app.get("/members", async (req, res) => {
+      const query = { role: "member" };
       const result = await usersCollection.find(query).toArray();
       res.send(result);
-    })
-    
+    });
+
     // get user role by email
     app.get("/users/role", async (req, res) => {
       const email = req.query.email;
@@ -90,6 +90,11 @@ async function run() {
     // Get user's pending bookings
     app.get("/bookings/pending", async (req, res) => {
       const user = req.query.user;
+      const role = req.query.role;
+      if(role==="admin"){
+        const result = await bookingsCollection.find({status: "pending"}).toArray();
+        return res.send(result)
+      }
       const query = { user, status: "pending" };
       const result = await bookingsCollection.find(query).toArray();
       res.send(result);
@@ -100,6 +105,19 @@ async function run() {
       const result = await bookingsCollection.insertOne(booking);
       res.send(result);
     });
+
+    app.patch("/bookings/:id", async(req, res)=>{
+      const id = req.params.id;
+      const status = req.body.status;
+      const query = {_id: new ObjectId(id)}
+      const updatedDoc = {
+        $set:{
+          status:status
+        }
+      }
+      const result = await bookingsCollection.updateOne(query, updatedDoc);
+      res.send(result)
+    })
 
     // Cancel booking
     app.delete("/cancel-bookings/:id", async (req, res) => {
