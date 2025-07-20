@@ -86,9 +86,9 @@ async function run() {
       }
 
       if (role === "member") {
-        query={role};
-      } else if(role === "admin") {
-        query={role};
+        query = { role };
+      } else if (role === "admin") {
+        query = { role };
       }
       const result = await usersCollection.find(query).toArray();
       res.send(result);
@@ -134,6 +134,46 @@ async function run() {
       res.send(updateUser);
     });
 
+    // PATCH update user role
+    app.patch(
+      "/anyUser/role",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.query.email;
+        const role = req.body.role;
+
+        if (!["admin", "user", "member"].includes(role)) {
+          return res.status(400).json({ message: "Invalid role" });
+        }
+
+        const result = await usersCollection.updateOne(
+          { email },
+          { $set: { role } }
+        );
+
+        res.send(result);
+      }
+    );
+
+    // DELETE user by email (admin only)
+    app.delete("/users", verifyFirebaseToken, verifyAdmin, async (req, res) => {
+      const email = req.query.email;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required in query" });
+      }
+
+      const userRecord = await admin.auth().getUserByEmail(email);
+      const uid = userRecord.uid;
+
+      await admin.auth().deleteUser(uid);
+
+      const result = await usersCollection.deleteOne({ email });
+
+      res.send(result);
+    });
+
     // members api
 
     // get members
@@ -149,31 +189,6 @@ async function run() {
       const result = await usersCollection.find(query).toArray();
       res.send(result);
     });
-
-    // DELETE user by email (admin only)
-    app.delete(
-      "/members",
-      verifyFirebaseToken,
-      verifyAdmin,
-      async (req, res) => {
-        const email = req.query.email;
-
-        if (!email) {
-          return res
-            .status(400)
-            .json({ message: "Email is required in query" });
-        }
-
-        const userRecord = await admin.auth().getUserByEmail(email);
-        const uid = userRecord.uid;
-
-        await admin.auth().deleteUser(uid);
-
-        const result = await usersCollection.deleteOne({ email });
-
-        res.send(result);
-      }
-    );
 
     // courts apis
     app.get("/courts", async (req, res) => {
