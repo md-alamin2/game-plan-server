@@ -1,9 +1,13 @@
 const express = require("express");
-const app = express();
 const cors = require("cors");
 require("dotenv").config();
-const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const admin = require("firebase-admin");
+const serviceToken = process.env.FIREBASE_SERVICE_TOKEN;
+const decoded = Buffer.from(serviceToken, "base64").toString("utf8");
+const serviceAccount = JSON.parse(decoded);
+const app = express();
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
@@ -17,6 +21,11 @@ const client = new MongoClient(process.env.MONGO_URI, {
   },
 });
 
+// firebase middleware
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
@@ -28,14 +37,59 @@ async function run() {
     const bookingsCollection = DB.collection("bookings");
     const announcementsCollection = DB.collection("announcements");
 
+    // custom middleware
+    // verify token
+    const verifyFirebaseToken = async (req, res, next) => {
+      const authHeader = req.headers?.authorization;
+      if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+
+      const token = authHeader.split(" ")[1];
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+      } catch {
+        return res.status(401).send({ message: "unauthorized access" });
+      }
+    };
+    // verify email
+    const verifyFirebaseEmail = (req, res, next) => {
+      if (req.query.email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    // admin verify
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     // users apis
     app.get("/users", async (req, res) => {
-      const result = await usersCollection.find().toArray();
-      res.send(result);
-    });
+      const user = req.query.search;
+      const role = req.query.role;
+      let query = {};
+      if (user) {
+        query = {
+          name: { $regex: user, $options: "i" },
+        };
+      }
 
-    app.get("/members", async (req, res) => {
-      const query = { role: "member" };
+      if (role === "member") {
+        query={role};
+      } else if(role === "admin") {
+        query={role};
+      }
       const result = await usersCollection.find(query).toArray();
       res.send(result);
     });
@@ -80,6 +134,47 @@ async function run() {
       res.send(updateUser);
     });
 
+    // members api
+
+    // get members
+    app.get("/members", async (req, res) => {
+      const user = req.query.search;
+      let query = { role: "member" };
+      if (user) {
+        query = {
+          $or: [{ name: { $regex: user, $options: "i" } }],
+          role: "member",
+        };
+      }
+      const result = await usersCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    // DELETE user by email (admin only)
+    app.delete(
+      "/members",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.query.email;
+
+        if (!email) {
+          return res
+            .status(400)
+            .json({ message: "Email is required in query" });
+        }
+
+        const userRecord = await admin.auth().getUserByEmail(email);
+        const uid = userRecord.uid;
+
+        await admin.auth().deleteUser(uid);
+
+        const result = await usersCollection.deleteOne({ email });
+
+        res.send(result);
+      }
+    );
+
     // courts apis
     app.get("/courts", async (req, res) => {
       const result = await courtsCollection.find().toArray();
@@ -91,11 +186,13 @@ async function run() {
     app.get("/bookings/pending", async (req, res) => {
       const user = req.query.user;
       const role = req.query.role;
-      if(role==="admin"){
-        const result = await bookingsCollection.find({status: "pending"}).toArray();
-        return res.send(result)
+      if (role === "admin") {
+        const result = await bookingsCollection
+          .find({ status: "pending" })
+          .toArray();
+        return res.send(result);
       }
-      const query = { user, status: "pending" };
+      const query = { user, status: { $in: ["pending", "rejected"] } };
       const result = await bookingsCollection.find(query).toArray();
       res.send(result);
     });
@@ -106,18 +203,26 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/bookings/:id", async(req, res)=>{
+    app.patch("/bookings/:id", async (req, res) => {
       const id = req.params.id;
       const status = req.body.status;
-      const query = {_id: new ObjectId(id)}
+      const user = req.body.user;
+      const query = { _id: new ObjectId(id) };
       const updatedDoc = {
-        $set:{
-          status:status
-        }
+        $set: {
+          status: status,
+        },
+      };
+
+      if (status === "approved") {
+        await usersCollection.updateOne(
+          { email: user },
+          { $set: { role: "member", member_since: new Date().toISOString() } }
+        );
       }
       const result = await bookingsCollection.updateOne(query, updatedDoc);
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     // Cancel booking
     app.delete("/cancel-bookings/:id", async (req, res) => {
