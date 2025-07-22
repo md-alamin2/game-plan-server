@@ -192,9 +192,25 @@ async function run() {
 
     // courts apis
     app.get("/courts", async (req, res) => {
-      const result = await courtsCollection.find().toArray();
+      const court = req.query.search;
+      let query = {};
+      if (court) {
+        query = {
+          name: { $regex: court, $options: "i" },
+        };
+      }
+
+      const result = await courtsCollection.find(query).toArray();
       res.send(result);
     });
+
+    // court post api
+    app.post("/courts", async(req, res)=>{
+      const court = req.body;
+      const result = await courtsCollection.insertOne(court);
+      res.send(result);
+    })
+
 
     // bookings apis
     // Get user's pending bookings
