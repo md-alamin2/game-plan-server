@@ -211,6 +211,30 @@ async function run() {
       res.send(result);
     })
 
+    app.put("/courts/:id", async(req, res)=>{
+      const id = req.params.id;
+      const updatedCourt = req.body;
+
+      const query ={_id: new ObjectId(id)}
+      const updatedDoc={
+        $set:{
+          ...updatedCourt
+        }
+      }
+
+      const result = await courtsCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    })
+
+    app.delete("/courts/:id", async(req, res)=>{
+      const id = req.params.id;
+      if(id){
+        await bookingsCollection.deleteMany({courtId: id})
+      }
+      const query = {_id: new ObjectId(id)}
+      const result = await courtsCollection.deleteOne(query);
+      res.send(result)
+    })
 
     // bookings apis
     // Get user's pending bookings
