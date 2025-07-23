@@ -253,6 +253,16 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/bookings/approved", async(req, res)=>{
+      const user = req.query.user;
+      const query = {
+        user,
+        status:"approved"
+      }
+      const result = await bookingsCollection.find(query).toArray();
+      res.send(result)
+    })
+
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
       const result = await bookingsCollection.insertOne(booking);
@@ -281,7 +291,7 @@ async function run() {
     });
 
     // Cancel booking
-    app.delete("/cancel-bookings/:id", async (req, res) => {
+    app.delete("/bookings/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingsCollection.deleteOne(query);
