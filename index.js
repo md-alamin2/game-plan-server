@@ -35,6 +35,7 @@ async function run() {
     const usersCollection = DB.collection("users");
     const courtsCollection = DB.collection("courts");
     const bookingsCollection = DB.collection("bookings");
+    const couponsCollection = DB.collection("coupons");
     const announcementsCollection = DB.collection("announcements");
 
     // custom middleware
@@ -205,36 +206,36 @@ async function run() {
     });
 
     // court post api
-    app.post("/courts", async(req, res)=>{
+    app.post("/courts", async (req, res) => {
       const court = req.body;
       const result = await courtsCollection.insertOne(court);
       res.send(result);
-    })
+    });
 
-    app.put("/courts/:id", async(req, res)=>{
+    app.put("/courts/:id", async (req, res) => {
       const id = req.params.id;
       const updatedCourt = req.body;
 
-      const query ={_id: new ObjectId(id)}
-      const updatedDoc={
-        $set:{
-          ...updatedCourt
-        }
-      }
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          ...updatedCourt,
+        },
+      };
 
       const result = await courtsCollection.updateOne(query, updatedDoc);
       res.send(result);
-    })
+    });
 
-    app.delete("/courts/:id", async(req, res)=>{
+    app.delete("/courts/:id", async (req, res) => {
       const id = req.params.id;
-      if(id){
-        await bookingsCollection.deleteMany({courtId: id})
+      if (id) {
+        await bookingsCollection.deleteMany({ courtId: id });
       }
-      const query = {_id: new ObjectId(id)}
+      const query = { _id: new ObjectId(id) };
       const result = await courtsCollection.deleteOne(query);
-      res.send(result)
-    })
+      res.send(result);
+    });
 
     // bookings apis
     // Get user's pending bookings
@@ -284,6 +285,54 @@ async function run() {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingsCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // coupons api
+    app.get("/coupons", async (req, res) => {
+      const coupon = req.query.search;
+      let query = {};
+      if (coupon) {
+        query = {
+          code: { $regex: coupon, $options: "i" },
+        };
+      }
+      const result = await couponsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.post("/coupons", async (req, res) => {
+      const coupon = req.body;
+      const newCoupon = {
+        ...coupon,
+        expiryDate: new Date(coupon.expiryDate).toISOString(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const result = await couponsCollection.insertOne(newCoupon);
+      res.send(result);
+    });
+
+    app.patch("/coupons/:id", async (req, res) => {
+      const id = req.params.id;
+      const coupon = req.body;
+      const query = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          ...coupon,
+          expiryDate: new Date(coupon.expiryDate).toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      };
+      const result = await couponsCollection.updateOne(query, updatedDoc);
+      res.send(result);
+    });
+
+    // coupons delete api
+    app.delete("/coupons/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await couponsCollection.deleteOne(query);
       res.send(result);
     });
 
