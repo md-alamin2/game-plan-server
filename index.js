@@ -8,6 +8,7 @@ const decoded = Buffer.from(serviceToken, "base64").toString("utf8");
 const serviceAccount = JSON.parse(decoded);
 const app = express();
 const port = process.env.PORT || 3000;
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors());
 app.use(express.json());
@@ -35,6 +36,7 @@ async function run() {
     const usersCollection = DB.collection("users");
     const courtsCollection = DB.collection("courts");
     const bookingsCollection = DB.collection("bookings");
+    const paymentsCollection = DB.collection("payments");
     const couponsCollection = DB.collection("coupons");
     const announcementsCollection = DB.collection("announcements");
 
@@ -238,6 +240,13 @@ async function run() {
     });
 
     // bookings apis
+    app.get("/booking/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
     // Get user's pending bookings
     app.get("/bookings/pending", async (req, res) => {
       const user = req.query.user;
@@ -253,15 +262,25 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/bookings/approved", async(req, res)=>{
+    app.get("/bookings/approved", async (req, res) => {
       const user = req.query.user;
       const query = {
         user,
-        status:"approved"
-      }
+        status: "approved",
+      };
       const result = await bookingsCollection.find(query).toArray();
-      res.send(result)
-    })
+      res.send(result);
+    });
+
+    app.get("/bookings/confirmed", async (req, res) => {
+      const user = req.query.user;
+      const query = {
+        user,
+        status: "confirmed",
+      };
+      const result = await bookingsCollection.find(query).toArray();
+      res.send(result);
+    });
 
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
@@ -298,6 +317,89 @@ async function run() {
       res.send(result);
     });
 
+    // Create payment intent endpoint
+    app.post("/create-payment-intent", async (req, res) => {
+      const amount = req.body.amount;
+      console.log(amount);
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount,
+          currency: "usd",
+        });
+        res.json({ clientSecret: paymentIntent.client_secret });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    // get user payment
+    app.get("/payments", async (req, res) => {
+      const email = req.query.email;
+      const query = email ? { email } : {};
+      const option = { sort: { paid_at: -1 } };
+      const result = await paymentsCollection.find(query, option).toArray();
+      res.send(result);
+    });
+
+    // save payment and update court, booking, coupon status
+    app.post("/payments", async (req, res) => {
+      const {
+        bookingId,
+        courtId,
+        slots,
+        email,
+        amount,
+        couponCode,
+        maxUses,
+        discountAmount,
+        transactionId,
+      } = req.body;
+
+      const court = await courtsCollection.findOne({
+        _id: new ObjectId(courtId),
+      });
+
+      if (court) {
+        availableSlots = court.slots.map((slot) => {
+          const isBooked = slots.some(
+            (bookedSlot) =>
+              bookedSlot.startTime === slot.startTime &&
+              bookedSlot.endTime === slot.endTime
+          );
+          return {
+            ...slot,
+            available: isBooked ? false : slot.available,
+          };
+        });
+        await courtsCollection.updateOne({_id: new ObjectId(courtId)}, {$set:{slots:availableSlots}})
+      }
+
+      await couponsCollection.updateOne({ code: couponCode }, {$set: {maxUses} });
+
+      await bookingsCollection.updateOne(
+        {
+          _id: new ObjectId(bookingId),
+        },
+        { $set: { status: "confirmed" } }
+      );
+
+      const paymentData = {
+        courtName: court.name,
+        email,
+        amount,
+        couponCode,
+        discountAmount,
+        transactionId,
+        pay_at_string: new Date().toISOString(),
+        pay_at: new Date(),
+      }
+
+      const result = await paymentsCollection.insertOne(paymentData);
+      res.send(result)
+
+      
+    });
+
     // coupons api
     app.get("/coupons", async (req, res) => {
       const coupon = req.query.search;
@@ -308,6 +410,15 @@ async function run() {
         };
       }
       const result = await couponsCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/coupon", async (req, res) => {
+      const couponCode = req.query.code;
+      const query = {
+        code: couponCode,
+      };
+      const result = await couponsCollection.findOne(query);
       res.send(result);
     });
 
