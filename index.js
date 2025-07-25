@@ -253,7 +253,6 @@ async function run() {
       const user = req.query.user;
       const role = req.query.role;
       const search = req.query.search;
-      console.log(search);
       let query;
       if (role === "admin") {
         query = { status: "pending" };
@@ -349,10 +348,42 @@ async function run() {
       res.send(result);
     });
 
+    // cancel booking and make available the booked courts
+    app.delete("/manage/booking/:id", async (req, res) => {
+      const id = req.params.id;
+      const { courtId, slots } = req.body;
+
+      const court = await courtsCollection.findOne({
+        _id: new ObjectId(courtId),
+      });
+
+      if (court) {
+        const availableSlots = court.slots.map((slot) => {
+          const isBooked = slots.some(
+            (bookedSlot) =>
+              bookedSlot.startTime === slot.startTime &&
+              bookedSlot.endTime === slot.endTime
+          );
+          return {
+            ...slot,
+            available: isBooked ? true : slot.available,
+          };
+        });
+        const updateCourt = await courtsCollection.updateOne(
+          { _id: new ObjectId(courtId) },
+          { $set: { slots: availableSlots } }
+        );
+        if (updateCourt.modifiedCount) {
+          const query = { _id: new ObjectId(id) };
+          const result = await bookingsCollection.deleteOne(query);
+          res.send(result);
+        }
+      }
+    });
+
     // Create payment intent endpoint
     app.post("/create-payment-intent", async (req, res) => {
       const amount = req.body.amount;
-      console.log(amount);
       try {
         const paymentIntent = await stripe.paymentIntents.create({
           amount,
@@ -399,7 +430,7 @@ async function run() {
       });
 
       if (court) {
-        availableSlots = court.slots.map((slot) => {
+        const availableSlots = court.slots.map((slot) => {
           const isBooked = slots.some(
             (bookedSlot) =>
               bookedSlot.startTime === slot.startTime &&
@@ -456,15 +487,18 @@ async function run() {
       res.send(result);
     });
 
+    // get single coupon when payment
     app.get("/coupon", async (req, res) => {
       const couponCode = req.query.code;
       const query = {
         code: couponCode,
+        active: true,
       };
       const result = await couponsCollection.findOne(query);
       res.send(result);
     });
 
+    // coupon post api
     app.post("/coupons", async (req, res) => {
       const coupon = req.body;
       const newCoupon = {
@@ -477,6 +511,7 @@ async function run() {
       res.send(result);
     });
 
+    // coupon patch
     app.patch("/coupons/:id", async (req, res) => {
       const id = req.params.id;
       const coupon = req.body;
