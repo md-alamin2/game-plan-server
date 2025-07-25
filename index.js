@@ -185,7 +185,7 @@ async function run() {
       let query = { role: "member" };
       if (user) {
         query = {
-          $or: [{ name: { $regex: user, $options: "i" } }],
+          name: { $regex: user, $options: "i" },
           role: "member",
         };
       }
@@ -247,26 +247,41 @@ async function run() {
       });
       res.send(result);
     });
+
     // Get user's pending bookings
     app.get("/bookings/pending", async (req, res) => {
       const user = req.query.user;
       const role = req.query.role;
+      const search = req.query.search;
+      console.log(search);
+      let query;
       if (role === "admin") {
-        const result = await bookingsCollection
-          .find({ status: "pending" })
-          .toArray();
+        query = { status: "pending" };
+        const result = await bookingsCollection.find(query).toArray();
         return res.send(result);
       }
-      const query = { user, status: { $in: ["pending", "rejected"] } };
+      query = {
+        user,
+        status: { $in: ["pending", "rejected"] },
+        $or: [
+          { courtName: { $regex: search, $options: "i" } },
+          { courtType: { $regex: search, $options: "i" } },
+        ],
+      };
       const result = await bookingsCollection.find(query).toArray();
       res.send(result);
     });
 
     app.get("/bookings/approved", async (req, res) => {
       const user = req.query.user;
+      const search = req.query.search;
       const query = {
         user,
         status: "approved",
+        $or: [
+          { courtName: { $regex: search, $options: "i" } },
+          { courtType: { $regex: search, $options: "i" } },
+        ],
       };
       const result = await bookingsCollection.find(query).toArray();
       res.send(result);
@@ -274,11 +289,28 @@ async function run() {
 
     app.get("/bookings/confirmed", async (req, res) => {
       const user = req.query.user;
-      const query = {
-        user,
-        status: "confirmed",
-      };
-      const result = await bookingsCollection.find(query).toArray();
+      const search = req.query.search;
+      let query;
+      if (user) {
+        query = {
+          user,
+          status: "confirmed",
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { courtType: { $regex: search, $options: "i" } },
+          ],
+        };
+      } else {
+        query = {
+          status: "confirmed",
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { user: { $regex: search, $options: "i" } },
+          ],
+        };
+      }
+      const option = { sort: { booking_at: -1 } };
+      const result = await bookingsCollection.find(query, option).toArray();
       res.send(result);
     });
 
@@ -334,8 +366,15 @@ async function run() {
 
     // get user payment
     app.get("/payments", async (req, res) => {
-      const email = req.query.email;
-      const query = email ? { email } : {};
+      const email = req.query.user;
+      const search = req.query.search;
+      const query = {
+        email,
+        $or: [
+          { courtName: { $regex: search, $options: "i" } },
+          { transactionId: { $regex: search, $options: "i" } },
+        ],
+      };
       const option = { sort: { paid_at: -1 } };
       const result = await paymentsCollection.find(query, option).toArray();
       res.send(result);
@@ -371,10 +410,16 @@ async function run() {
             available: isBooked ? false : slot.available,
           };
         });
-        await courtsCollection.updateOne({_id: new ObjectId(courtId)}, {$set:{slots:availableSlots}})
+        await courtsCollection.updateOne(
+          { _id: new ObjectId(courtId) },
+          { $set: { slots: availableSlots } }
+        );
       }
 
-      await couponsCollection.updateOne({ code: couponCode }, {$set: {maxUses} });
+      await couponsCollection.updateOne(
+        { code: couponCode },
+        { $set: { maxUses } }
+      );
 
       await bookingsCollection.updateOne(
         {
@@ -392,12 +437,10 @@ async function run() {
         transactionId,
         pay_at_string: new Date().toISOString(),
         pay_at: new Date(),
-      }
+      };
 
       const result = await paymentsCollection.insertOne(paymentData);
-      res.send(result)
-
-      
+      res.send(result);
     });
 
     // coupons api
