@@ -450,9 +450,8 @@ async function run() {
       }
     );
 
-    // todo: ask if add validation
     // Create payment intent endpoint
-    app.post("/create-payment-intent", async (req, res) => {
+    app.post("/create-payment-intent", verifyFirebaseToken, async (req, res) => {
       const amount = req.body.amount;
       try {
         const paymentIntent = await stripe.paymentIntents.create({
