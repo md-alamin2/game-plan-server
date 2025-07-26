@@ -77,8 +77,11 @@ async function run() {
       next();
     };
 
+    // All apis
+
     // users apis
-    app.get("/users", async (req, res) => {
+    // get all user and member api (admin)
+    app.get("/users", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const user = req.query.search;
       const role = req.query.role;
       let query = {};
@@ -98,12 +101,17 @@ async function run() {
     });
 
     // get user role by email
-    app.get("/users/role", async (req, res) => {
-      const email = req.query.email;
-      const query = { email };
-      const result = await usersCollection.findOne(query);
-      res.send(result);
-    });
+    app.get(
+      "/users/role",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const email = req.query.email;
+        const query = { email };
+        const result = await usersCollection.findOne(query);
+        res.send(result);
+      }
+    );
 
     // post user data
     app.post("/users", async (req, res) => {
@@ -127,15 +135,21 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/users", async (req, res) => {
-      const user = req.body;
-      const email = req.query.email;
-      const query = { email };
-      const updateUser = await usersCollection.updateOne(query, {
-        $set: user,
-      });
-      res.send(updateUser);
-    });
+    // user profile update patch api
+    app.patch(
+      "/users",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const user = req.body;
+        const email = req.query.email;
+        const query = { email };
+        const updateUser = await usersCollection.updateOne(query, {
+          $set: user,
+        });
+        res.send(updateUser);
+      }
+    );
 
     // PATCH update user role
     app.patch(
@@ -178,9 +192,8 @@ async function run() {
     });
 
     // members api
-
-    // get members
-    app.get("/members", async (req, res) => {
+    // get members all members with search
+    app.get("/members", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const user = req.query.search;
       let query = { role: "member" };
       if (user) {
@@ -208,39 +221,50 @@ async function run() {
     });
 
     // court post api
-    app.post("/courts", async (req, res) => {
+    app.post("/courts", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const court = req.body;
       const result = await courtsCollection.insertOne(court);
       res.send(result);
     });
 
-    app.put("/courts/:id", async (req, res) => {
-      const id = req.params.id;
-      const updatedCourt = req.body;
+    app.put(
+      "/courts/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const updatedCourt = req.body;
 
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          ...updatedCourt,
-        },
-      };
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            ...updatedCourt,
+          },
+        };
 
-      const result = await courtsCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
-
-    app.delete("/courts/:id", async (req, res) => {
-      const id = req.params.id;
-      if (id) {
-        await bookingsCollection.deleteMany({ courtId: id });
+        const result = await courtsCollection.updateOne(query, updatedDoc);
+        res.send(result);
       }
-      const query = { _id: new ObjectId(id) };
-      const result = await courtsCollection.deleteOne(query);
-      res.send(result);
-    });
+    );
+
+    app.delete(
+      "/courts/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        if (id) {
+          await bookingsCollection.deleteMany({ courtId: id });
+        }
+        const query = { _id: new ObjectId(id) };
+        const result = await courtsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // bookings apis
-    app.get("/booking/:id", async (req, res) => {
+    // get single booking for payment
+    app.get("/booking/:id", verifyFirebaseToken, async (req, res) => {
       const id = req.params.id;
       const result = await bookingsCollection.findOne({
         _id: new ObjectId(id),
@@ -248,50 +272,91 @@ async function run() {
       res.send(result);
     });
 
-    // Get user's pending bookings
-    app.get("/bookings/pending", async (req, res) => {
-      const user = req.query.user;
-      const role = req.query.role;
-      const search = req.query.search;
-      let query;
-      if (role === "admin") {
-        query = { status: "pending" };
-        const result = await bookingsCollection.find(query).toArray();
+    // get all pending bookings(admin)
+    app.get(
+      "/bookings/pending/all",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const query = { status: "pending" };
+        const option = { sort: { booking_at: -1 } };
+        const result = await bookingsCollection.find(query, option).toArray();
         return res.send(result);
       }
-      query = {
-        user,
-        status: { $in: ["pending", "rejected"] },
-        $or: [
-          { courtName: { $regex: search, $options: "i" } },
-          { courtType: { $regex: search, $options: "i" } },
-        ],
-      };
-      const result = await bookingsCollection.find(query).toArray();
-      res.send(result);
-    });
+    );
 
-    app.get("/bookings/approved", async (req, res) => {
-      const user = req.query.user;
-      const search = req.query.search;
-      const query = {
-        user,
-        status: "approved",
-        $or: [
-          { courtName: { $regex: search, $options: "i" } },
-          { courtType: { $regex: search, $options: "i" } },
-        ],
-      };
-      const result = await bookingsCollection.find(query).toArray();
-      res.send(result);
-    });
+    // Get user's pending bookings
+    app.get(
+      "/bookings/pending",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const user = req.query.email;
+        const search = req.query.search;
+        const query = {
+          user,
+          status: { $in: ["pending", "rejected"] },
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { courtType: { $regex: search, $options: "i" } },
+          ],
+        };
+        const option = { sort: { booking_at: -1 } };
+        const result = await bookingsCollection.find(query, option).toArray();
+        res.send(result);
+      }
+    );
 
-    app.get("/bookings/confirmed", async (req, res) => {
-      const user = req.query.user;
-      const search = req.query.search;
-      let query;
-      if (user) {
-        query = {
+    // Get user's approved bookings
+    app.get(
+      "/bookings/approved",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const user = req.query.email;
+        const search = req.query.search;
+        const query = {
+          user,
+          status: "approved",
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { courtType: { $regex: search, $options: "i" } },
+          ],
+        };
+        const result = await bookingsCollection.find(query).toArray();
+        res.send(result);
+      }
+    );
+
+    // get all users confirmed booking with search
+    app.get(
+      "/bookings/confirmed/all",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const search = req.query.search;
+        const query = {
+          status: "confirmed",
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { user: { $regex: search, $options: "i" } },
+          ],
+        };
+        const option = { sort: { booking_at: -1 } };
+        const result = await bookingsCollection.find(query, option).toArray();
+        res.send(result);
+      }
+    );
+
+    // get login user confirmed bookings
+    app.get(
+      "/bookings/confirmed",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const user = req.query.email;
+        const search = req.query.search;
+        const query = {
           user,
           status: "confirmed",
           $or: [
@@ -299,49 +364,48 @@ async function run() {
             { courtType: { $regex: search, $options: "i" } },
           ],
         };
-      } else {
-        query = {
-          status: "confirmed",
-          $or: [
-            { courtName: { $regex: search, $options: "i" } },
-            { user: { $regex: search, $options: "i" } },
-          ],
-        };
+        const option = { sort: { booking_at: -1 } };
+        const result = await bookingsCollection.find(query, option).toArray();
+        res.send(result);
       }
-      const option = { sort: { booking_at: -1 } };
-      const result = await bookingsCollection.find(query, option).toArray();
-      res.send(result);
-    });
+    );
 
-    app.post("/bookings", async (req, res) => {
+    // post booking api
+    app.post("/bookings", verifyFirebaseToken, async (req, res) => {
       const booking = req.body;
       const result = await bookingsCollection.insertOne(booking);
       res.send(result);
     });
 
-    app.patch("/bookings/:id", async (req, res) => {
-      const id = req.params.id;
-      const status = req.body.status;
-      const user = req.body.user;
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          status: status,
-        },
-      };
+    //
+    app.patch(
+      "/bookings/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const status = req.body.status;
+        const user = req.body.user;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            status: status,
+          },
+        };
 
-      if (status === "approved") {
-        await usersCollection.updateOne(
-          { email: user },
-          { $set: { role: "member", member_since: new Date().toISOString() } }
-        );
+        if (status === "approved") {
+          await usersCollection.updateOne(
+            { email: user },
+            { $set: { role: "member", member_since: new Date().toISOString() } }
+          );
+        }
+        const result = await bookingsCollection.updateOne(query, updatedDoc);
+        res.send(result);
       }
-      const result = await bookingsCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+    );
 
     // Cancel booking
-    app.delete("/bookings/:id", async (req, res) => {
+    app.delete("/bookings/:id", verifyFirebaseToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingsCollection.deleteOne(query);
@@ -349,38 +413,44 @@ async function run() {
     });
 
     // cancel booking and make available the booked courts
-    app.delete("/manage/booking/:id", async (req, res) => {
-      const id = req.params.id;
-      const { courtId, slots } = req.body;
+    app.delete(
+      "/manage/booking/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const { courtId, slots } = req.body;
 
-      const court = await courtsCollection.findOne({
-        _id: new ObjectId(courtId),
-      });
-
-      if (court) {
-        const availableSlots = court.slots.map((slot) => {
-          const isBooked = slots.some(
-            (bookedSlot) =>
-              bookedSlot.startTime === slot.startTime &&
-              bookedSlot.endTime === slot.endTime
-          );
-          return {
-            ...slot,
-            available: isBooked ? true : slot.available,
-          };
+        const court = await courtsCollection.findOne({
+          _id: new ObjectId(courtId),
         });
-        const updateCourt = await courtsCollection.updateOne(
-          { _id: new ObjectId(courtId) },
-          { $set: { slots: availableSlots } }
-        );
-        if (updateCourt.modifiedCount) {
-          const query = { _id: new ObjectId(id) };
-          const result = await bookingsCollection.deleteOne(query);
-          res.send(result);
+
+        if (court) {
+          const availableSlots = court.slots.map((slot) => {
+            const isBooked = slots.some(
+              (bookedSlot) =>
+                bookedSlot.startTime === slot.startTime &&
+                bookedSlot.endTime === slot.endTime
+            );
+            return {
+              ...slot,
+              available: isBooked ? true : slot.available,
+            };
+          });
+          const updateCourt = await courtsCollection.updateOne(
+            { _id: new ObjectId(courtId) },
+            { $set: { slots: availableSlots } }
+          );
+          if (updateCourt.modifiedCount) {
+            const query = { _id: new ObjectId(id) };
+            const result = await bookingsCollection.deleteOne(query);
+            res.send(result);
+          }
         }
       }
-    });
+    );
 
+    // todo: ask if add validation
     // Create payment intent endpoint
     app.post("/create-payment-intent", async (req, res) => {
       const amount = req.body.amount;
@@ -396,23 +466,28 @@ async function run() {
     });
 
     // get user payment
-    app.get("/payments", async (req, res) => {
-      const email = req.query.user;
-      const search = req.query.search;
-      const query = {
-        email,
-        $or: [
-          { courtName: { $regex: search, $options: "i" } },
-          { transactionId: { $regex: search, $options: "i" } },
-        ],
-      };
-      const option = { sort: { paid_at: -1 } };
-      const result = await paymentsCollection.find(query, option).toArray();
-      res.send(result);
-    });
+    app.get(
+      "/payments",
+      verifyFirebaseToken,
+      verifyFirebaseEmail,
+      async (req, res) => {
+        const email = req.query.email;
+        const search = req.query.search;
+        const query = {
+          email,
+          $or: [
+            { courtName: { $regex: search, $options: "i" } },
+            { transactionId: { $regex: search, $options: "i" } },
+          ],
+        };
+        const option = { sort: { paid_at: -1 } };
+        const result = await paymentsCollection.find(query, option).toArray();
+        res.send(result);
+      }
+    );
 
     // save payment and update court, booking, coupon status
-    app.post("/payments", async (req, res) => {
+    app.post("/payments", verifyFirebaseToken, async (req, res) => {
       const {
         bookingId,
         courtId,
@@ -475,20 +550,34 @@ async function run() {
     });
 
     // coupons api
+    // get active coupons
     app.get("/coupons", async (req, res) => {
-      const coupon = req.query.search;
-      let query = {};
-      if (coupon) {
-        query = {
-          code: { $regex: coupon, $options: "i" },
-        };
-      }
+      const query = {
+        active: true,
+      };
       const result = await couponsCollection.find(query).toArray();
       res.send(result);
     });
 
+    app.get(
+      "/coupons/all",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const coupon = req.query.search;
+        let query = {};
+        if (coupon) {
+          query = {
+            code: { $regex: coupon, $options: "i" },
+          };
+        }
+        const result = await couponsCollection.find(query).toArray();
+        res.send(result);
+      }
+    );
+
     // get single coupon when payment
-    app.get("/coupon", async (req, res) => {
+    app.get("/coupon", verifyFirebaseToken, async (req, res) => {
       const couponCode = req.query.code;
       const query = {
         code: couponCode,
@@ -499,7 +588,7 @@ async function run() {
     });
 
     // coupon post api
-    app.post("/coupons", async (req, res) => {
+    app.post("/coupons", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const coupon = req.body;
       const newCoupon = {
         ...coupon,
@@ -512,54 +601,59 @@ async function run() {
     });
 
     // coupon patch
-    app.patch("/coupons/:id", async (req, res) => {
-      const id = req.params.id;
-      const coupon = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          ...coupon,
-          expiryDate: new Date(coupon.expiryDate).toISOString(),
-          updated_at: new Date().toISOString(),
-        },
-      };
-      const result = await couponsCollection.updateOne(query, updatedDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/coupons/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const coupon = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            ...coupon,
+            expiryDate: new Date(coupon.expiryDate).toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+        };
+        const result = await couponsCollection.updateOne(query, updatedDoc);
+        res.send(result);
+      }
+    );
 
     // coupons delete api
-    app.delete("/coupons/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await couponsCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/coupons/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await couponsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // announcement apis
 
-    app.get("/announcements", async (req, res) => {
-      const result = await announcementsCollection.find().toArray();
-      res.send(result);
-    });
-
-    // announcement search api
-    app.get("/announcements/search", async (req, res) => {
-      try {
-        const { title } = req.query;
-        const announcements = await announcementsCollection
-          .find({
-            title: { $regex: title, $options: "i" }, // Case-insensitive search
-          })
-          .sort({ createdAt: -1 })
-          .toArray();
-        res.send(announcements);
-      } catch (err) {
-        res.status(500).json({ message: "Server error" });
+    // Get all announcements with search
+    app.get("/announcements", verifyFirebaseToken, async (req, res) => {
+      const { title } = req.query;
+      let query={}
+      if (title) {
+        query = {
+          title: { $regex: title, $options: "i" }, // Case-insensitive search
+        };
       }
+      const announcements = await announcementsCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(announcements);
     });
 
     // announcement post api
-    app.post("/announcements", async (req, res) => {
+    app.post("/announcements", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const announcement = req.body;
       const newAnnouncement = {
         ...announcement,
@@ -570,7 +664,7 @@ async function run() {
     });
 
     // announcement post api
-    app.patch("/announcements/:id", async (req, res) => {
+    app.patch("/announcements/:id", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const updatedAnnouncement = req.body;
       const query = { _id: new ObjectId(id) };
@@ -585,7 +679,7 @@ async function run() {
     });
 
     // announcement delete api
-    app.delete("/announcements/:id", async (req, res) => {
+    app.delete("/announcements/:id", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await announcementsCollection.deleteOne(query);
