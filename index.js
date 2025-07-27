@@ -39,6 +39,7 @@ async function run() {
     const paymentsCollection = DB.collection("payments");
     const couponsCollection = DB.collection("coupons");
     const announcementsCollection = DB.collection("announcements");
+    const reviewsCollection = DB.collection("reviews");
 
     // custom middleware
     // verify token
@@ -82,12 +83,15 @@ async function run() {
     // users apis
     // get all user and member api (admin)
     app.get("/users", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const user = req.query.search;
+      const search = req.query.search;
       const role = req.query.role;
       let query = {};
-      if (user) {
+      if (search) {
         query = {
-          name: { $regex: user, $options: "i" },
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+          ],
         };
       }
 
@@ -194,11 +198,14 @@ async function run() {
     // members api
     // get members all members with search
     app.get("/members", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const user = req.query.search;
+      const search = req.query.search;
       let query = { role: "member" };
-      if (user) {
+      if (search) {
         query = {
-          name: { $regex: user, $options: "i" },
+          $or: [
+            { name: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+          ],
           role: "member",
         };
       }
@@ -220,6 +227,35 @@ async function run() {
       res.send(result);
     });
 
+    // court pagination api
+    app.get("/courts/pagination", async (req, res) => {
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 6;
+      const search = req.query.search || "";
+
+      const skip = (page - 1) * limit;
+
+      const query = {
+         $or:[
+          {name: { $regex: search, $options: "i" }},
+          {sportType: { $regex: search, $options: "i" }}
+         ]
+      };
+
+      const total = await courtsCollection.countDocuments(query);
+      const courts = await courtsCollection
+        .find(query)
+        .skip(skip)
+        .limit(limit)
+        .toArray();
+
+      res.send({
+        courts,
+        totalPages: Math.ceil(total / limit),
+        currentPage: page,
+      });
+    });
+
     // court post api
     app.post("/courts", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const court = req.body;
@@ -227,6 +263,7 @@ async function run() {
       res.send(result);
     });
 
+    // court put api
     app.put(
       "/courts/:id",
       verifyFirebaseToken,
@@ -278,7 +315,14 @@ async function run() {
       verifyFirebaseToken,
       verifyAdmin,
       async (req, res) => {
-        const query = { status: "pending" };
+        const search = req.query.search;
+        let query = { status: "pending" };
+        if (search) {
+          query.$or = [
+            { courtName: { $regex: search, $options: "i" } },
+            { user: { $regex: search, $options: "i" } },
+          ];
+        }
         const option = { sort: { booking_at: -1 } };
         const result = await bookingsCollection.find(query, option).toArray();
         return res.send(result);
@@ -377,7 +421,7 @@ async function run() {
       res.send(result);
     });
 
-    //
+    // approve or cancel booking patch api
     app.patch(
       "/bookings/:id",
       verifyFirebaseToken,
@@ -451,18 +495,22 @@ async function run() {
     );
 
     // Create payment intent endpoint
-    app.post("/create-payment-intent", verifyFirebaseToken, async (req, res) => {
-      const amount = req.body.amount;
-      try {
-        const paymentIntent = await stripe.paymentIntents.create({
-          amount,
-          currency: "usd",
-        });
-        res.json({ clientSecret: paymentIntent.client_secret });
-      } catch (err) {
-        res.status(500).json({ error: err.message });
+    app.post(
+      "/create-payment-intent",
+      verifyFirebaseToken,
+      async (req, res) => {
+        const amount = req.body.amount;
+        try {
+          const paymentIntent = await stripe.paymentIntents.create({
+            amount,
+            currency: "usd",
+          });
+          res.json({ clientSecret: paymentIntent.client_secret });
+        } catch (err) {
+          res.status(500).json({ error: err.message });
+        }
       }
-    });
+    );
 
     // get user payment
     app.get(
@@ -558,6 +606,7 @@ async function run() {
       res.send(result);
     });
 
+    // get all coupons for admin
     app.get(
       "/coupons/all",
       verifyFirebaseToken,
@@ -638,7 +687,7 @@ async function run() {
     // Get all announcements with search
     app.get("/announcements", verifyFirebaseToken, async (req, res) => {
       const { title } = req.query;
-      let query={}
+      let query = {};
       if (title) {
         query = {
           title: { $regex: title, $options: "i" }, // Case-insensitive search
@@ -652,44 +701,76 @@ async function run() {
     });
 
     // announcement post api
-    app.post("/announcements", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const announcement = req.body;
-      const newAnnouncement = {
-        ...announcement,
-        created_at: new Date().toISOString(),
-      };
-      const result = await announcementsCollection.insertOne(newAnnouncement);
-      res.send(result);
-    });
+    app.post(
+      "/announcements",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const announcement = req.body;
+        const newAnnouncement = {
+          ...announcement,
+          created_at: new Date().toISOString(),
+        };
+        const result = await announcementsCollection.insertOne(newAnnouncement);
+        res.send(result);
+      }
+    );
 
     // announcement post api
-    app.patch("/announcements/:id", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const updatedAnnouncement = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          title: updatedAnnouncement.title,
-          description: updatedAnnouncement.description,
-        },
-      };
-      const result = await announcementsCollection.updateOne(query, updatedDoc);
+    app.patch(
+      "/announcements/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const updatedAnnouncement = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updatedDoc = {
+          $set: {
+            title: updatedAnnouncement.title,
+            description: updatedAnnouncement.description,
+          },
+        };
+        const result = await announcementsCollection.updateOne(
+          query,
+          updatedDoc
+        );
+        res.send(result);
+      }
+    );
+
+    // announcement delete api
+    app.delete(
+      "/announcements/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await announcementsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
+
+    // reviews api
+    // get all reviews
+    app.get("/reviews", async (req, res) => {
+      const result = await reviewsCollection.find().toArray();
       res.send(result);
     });
 
-    // announcement delete api
-    app.delete("/announcements/:id", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await announcementsCollection.deleteOne(query);
+    // post a review
+    app.post("/reviews", verifyFirebaseToken, async (req, res) => {
+      const review = req.body;
+      const result = await reviewsCollection.insertOne(review);
       res.send(result);
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
