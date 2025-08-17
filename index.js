@@ -756,7 +756,7 @@ async function run() {
     app.get(
       "/dashboard/stats",
       verifyFirebaseToken,
-      // verifyAdmin,
+      verifyAdmin,
       async (req, res) => {
         try {
           const { range } = req.query; // 'week', 'month', or 'year'
@@ -1126,6 +1126,7 @@ async function run() {
           .json({ message: "Failed to fetch member dashboard data" });
       }
     });
+    
     // reviews api
     // get all reviews
     app.get("/reviews", async (req, res) => {
