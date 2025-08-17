@@ -236,10 +236,10 @@ async function run() {
       const skip = (page - 1) * limit;
 
       const query = {
-         $or:[
-          {name: { $regex: search, $options: "i" }},
-          {sportType: { $regex: search, $options: "i" }}
-         ]
+        $or: [
+          { name: { $regex: search, $options: "i" } },
+          { sportType: { $regex: search, $options: "i" } },
+        ],
       };
 
       const total = await courtsCollection.countDocuments(query);
@@ -752,6 +752,380 @@ async function run() {
       }
     );
 
+    // admin dashboard api
+    app.get(
+      "/dashboard/stats",
+      verifyFirebaseToken,
+      // verifyAdmin,
+      async (req, res) => {
+        try {
+          const { range } = req.query; // 'week', 'month', or 'year'
+
+          // Calculate date ranges based on the selected period
+          const currentDate = new Date();
+          let startDate = new Date();
+
+          switch (range) {
+            case "week":
+              startDate.setDate(currentDate.getDate() - 7);
+              break;
+            case "month":
+              startDate.setMonth(currentDate.getMonth() - 1);
+              break;
+            case "year":
+              startDate.setFullYear(currentDate.getFullYear() - 1);
+              break;
+            default:
+              startDate.setDate(currentDate.getDate() - 7); // Default to week
+          }
+
+          // 1. Total Members
+          const totalMembers = await usersCollection.countDocuments({
+            role: "member",
+          });
+
+          // 2. Member Growth (compared to previous period)
+          const previousPeriodMembers = await usersCollection.countDocuments({
+            role: "member",
+            member_since: { $lt: startDate.toISOString() },
+          });
+          const memberGrowth =
+            previousPeriodMembers > 0
+              ? (
+                  ((totalMembers - previousPeriodMembers) /
+                    previousPeriodMembers) *
+                  100
+                ).toFixed(1)
+              : 100;
+
+          // 3. Total Bookings (for current period)
+          const totalBookings = await bookingsCollection.countDocuments({
+            status: "confirmed",
+            booking_at: { $gte: startDate.toISOString() },
+          });
+
+          // 4. Booking Growth (compared to previous period)
+          const previousPeriodBookings =
+            await bookingsCollection.countDocuments({
+              status: "confirmed",
+              booking_at: {
+                $lt: startDate.toISOString(),
+                $gte: new Date(
+                  new Date(startDate).setDate(
+                    startDate.getDate() -
+                      (range === "week" ? 7 : range === "month" ? 30 : 365)
+                  )
+                ),
+              },
+            });
+          const bookingGrowth =
+            previousPeriodBookings > 0
+              ? (
+                  ((totalBookings - previousPeriodBookings) /
+                    previousPeriodBookings) *
+                  100
+                ).toFixed(1)
+              : 100;
+
+          // 5. Total Revenue (for current period)
+          const revenueResult = await paymentsCollection
+            .aggregate([
+              {
+                $match: {
+                  pay_at: { $gte: startDate },
+                },
+              },
+              { $group: { _id: null, total: { $sum: "$amount" } } },
+            ])
+            .toArray();
+          const totalRevenue = revenueResult[0]?.total || 0;
+
+          // 6. Revenue Growth (compared to previous period)
+          const previousRevenueResult = await paymentsCollection
+            .aggregate([
+              {
+                $match: {
+                  pay_at: {
+                    $lt: startDate,
+                    $gte: new Date(
+                      new Date(startDate).setDate(
+                        startDate.getDate() -
+                          (range === "week" ? 7 : range === "month" ? 30 : 365)
+                      )
+                    ),
+                  },
+                },
+              },
+              { $group: { _id: null, total: { $sum: "$amount" } } },
+            ])
+            .toArray();
+          const previousRevenue = previousRevenueResult[0]?.total || 0;
+          const revenueGrowth =
+            previousRevenue > 0
+              ? (
+                  ((totalRevenue - previousRevenue) / previousRevenue) *
+                  100
+                ).toFixed(1)
+              : 100;
+
+          // 7. Top Court by Bookings
+          const topCourtResult = await bookingsCollection
+            .aggregate([
+              {
+                $match: {
+                  status: "confirmed",
+                  booking_at: { $gte: startDate.toISOString() },
+                },
+              },
+              { $group: { _id: "$courtType", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+              { $limit: 1 },
+            ])
+            .toArray();
+          const topCourt = topCourtResult[0]?._id || "None";
+          const topCourtBookings = topCourtResult[0]?.count || 0;
+
+          // 8. Booking Trends (last 7 days regardless of selected range)
+          const bookingTrends = [];
+          const trendDays = range === "week" ? 7 : range === "month" ? 30 : 12; // For year, show 12 months
+          const trendInterval = range === "year" ? "month" : "day";
+
+          for (let i = trendDays - 1; i >= 0; i--) {
+            const date = new Date();
+            if (trendInterval === "day") {
+              date.setDate(date.getDate() - i);
+            } else {
+              date.setMonth(date.getMonth() - i);
+            }
+            date.setHours(0, 0, 0, 0);
+            const nextDate = new Date(date);
+            trendInterval === "day"
+              ? nextDate.setDate(date.getDate() + 1)
+              : nextDate.setMonth(date.getMonth() + 1);
+
+            const count = await bookingsCollection.countDocuments({
+              status: "confirmed",
+              booking_at: {
+                $gte: date.toISOString(),
+                $lt: nextDate.toISOString(),
+              },
+            });
+            bookingTrends.push(count);
+          }
+
+          // 9. Court Popularity
+          const courtPopularity = await bookingsCollection
+            .aggregate([
+              {
+                $match: {
+                  status: "confirmed",
+                  booking_at: { $gte: startDate.toISOString() },
+                },
+              },
+              { $group: { _id: "$courtType", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+            ])
+            .toArray();
+
+          // Prepare labels for booking trends based on range
+          let trendLabels = [];
+          if (range === "week") {
+            trendLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+          } else if (range === "month") {
+            trendLabels = Array.from({ length: 30 }, (_, i) => `Day ${i + 1}`);
+          } else {
+            trendLabels = [
+              "Jan",
+              "Feb",
+              "Mar",
+              "Apr",
+              "May",
+              "Jun",
+              "Jul",
+              "Aug",
+              "Sep",
+              "Oct",
+              "Nov",
+              "Dec",
+            ];
+          }
+
+          res.json({
+            totalMembers: parseInt(totalMembers),
+            memberGrowth: parseFloat(memberGrowth),
+            totalBookings: parseInt(totalBookings),
+            bookingGrowth: parseFloat(bookingGrowth),
+            totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+            revenueGrowth: parseFloat(revenueGrowth),
+            topCourt,
+            topCourtBookings: parseInt(topCourtBookings),
+            bookingTrends,
+            courtPopularity: {
+              labels: courtPopularity.map((item) => item._id),
+              data: courtPopularity.map((item) => item.count),
+            },
+            trendLabels, // Added to match your frontend expectation
+          });
+        } catch (error) {
+          console.error("Dashboard stats error:", error);
+          res.status(500).json({ message: "Failed to fetch dashboard stats" });
+        }
+      }
+    );
+
+    // member dashboard api
+    app.get("/member/dashboard", verifyFirebaseToken, async (req, res) => {
+      try {
+        const userEmail = req.query.email; // From Firebase token
+        const { range } = req.query;
+
+        // Calculate date ranges
+        const startDate = new Date();
+        if (range === "week") startDate.setDate(startDate.getDate() - 7);
+        else if (range === "month")
+          startDate.setMonth(startDate.getMonth() - 1);
+        else if (range === "year")
+          startDate.setFullYear(startDate.getFullYear() - 1);
+
+        // 1. Upcoming bookings
+        const upcomingBookings = await bookingsCollection.countDocuments({
+          user: userEmail,
+          status: "pending",
+        });
+
+        // 2. Next booking date
+        const nextBooking = await bookingsCollection.findOne(
+          {
+            user: userEmail,
+            status: "approved",
+            booking_at: { $gte: new Date().toISOString() },
+          },
+          {
+            sort: { booking_at: 1 },
+            projection: { booking_at: 1 },
+          }
+        );
+
+        // 3. Total bookings
+        const totalBookings = await bookingsCollection.countDocuments({
+          user: userEmail,
+          status: "confirmed",
+        });
+
+        // 4. Booking growth
+        const previousPeriodBookings = await bookingsCollection.countDocuments({
+          user: userEmail,
+          status: "confirmed",
+          booking_at: {
+            $gte: new Date(startDate).toISOString(),
+            $lt: new Date(
+              new Date(startDate).setDate(
+                startDate.getDate() -
+                  (range === "week" ? 7 : range === "month" ? 30 : 365)
+              )
+            ),
+          },
+        });
+        const bookingGrowth =
+          previousPeriodBookings > 0
+            ? (
+                ((totalBookings - previousPeriodBookings) /
+                  previousPeriodBookings) *
+                100
+              ).toFixed(1)
+            : 100;
+
+        // 5. Favorite court
+        const favoriteCourt = await bookingsCollection
+          .aggregate([
+            { $match: { user: userEmail, status: "confirmed" } },
+            { $group: { _id: "$courtType", count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 1 },
+          ])
+          .toArray();
+
+        // 6. Activity trend
+        const activityLabels = [];
+        const bookingActivity = [];
+        const periods = range === "year" ? 12 : range === "month" ? 4 : 7;
+
+        for (let i = 0; i < periods; i++) {
+          const periodStart = new Date(startDate);
+          const periodEnd = new Date(startDate);
+
+          if (range === "year") {
+            periodStart.setMonth(startDate.getMonth() + i);
+            periodEnd.setMonth(startDate.getMonth() + i + 1);
+            activityLabels.push(
+              periodStart.toLocaleString("default", { month: "short" })
+            );
+          } else if (range === "month") {
+            periodStart.setDate(startDate.getDate() + i * 7);
+            periodEnd.setDate(startDate.getDate() + (i + 1) * 7);
+            activityLabels.push(`Week ${i + 1}`);
+          } else {
+            periodStart.setDate(startDate.getDate() + i);
+            periodEnd.setDate(startDate.getDate() + i + 1);
+            activityLabels.push(
+              periodStart.toLocaleString("default", { weekday: "short" })
+            );
+          }
+
+          const count = await bookingsCollection.countDocuments({
+            user: userEmail,
+            status: "confirmed",
+            booking_at: {
+              $gte: periodStart.toISOString(),
+              $lt: periodEnd.toISOString(),
+            },
+          });
+
+          bookingActivity.push(count);
+        }
+
+        // 7. Recent bookings
+        const recentBookings = await bookingsCollection
+          .find({
+            user: userEmail,
+            status: "confirmed",
+          })
+          .sort({ booking_at: -1 })
+          .limit(3)
+          .toArray();
+
+        // 8. Total spent
+        const totalSpentResult = await paymentsCollection
+          .aggregate([
+            { $match: { email: userEmail } },
+            { $group: { _id: null, total: { $sum: "$amount" } } },
+          ])
+          .toArray();
+
+        const user = await usersCollection.findOne({ email: userEmail });
+
+        res.json({
+          upcomingBookings,
+          nextBookingDate: nextBooking?.booking_at
+            ? new Date(nextBooking.booking_at).toLocaleDateString()
+            : "No upcoming bookings",
+          totalBookings,
+          bookingGrowth: parseFloat(bookingGrowth),
+          favoriteCourt: favoriteCourt[0]?._id || "None",
+          favoriteCourtBookings: favoriteCourt[0]?.count || 0,
+          activityLabels,
+          bookingActivity,
+          recentBookings,
+          totalSpent: totalSpentResult[0]?.total || 0,
+          memberSince: user?.member_since,
+        });
+      } catch (error) {
+        console.error("Member dashboard error:", error);
+        res
+          .status(500)
+          .json({ message: "Failed to fetch member dashboard data" });
+      }
+    });
     // reviews api
     // get all reviews
     app.get("/reviews", async (req, res) => {
